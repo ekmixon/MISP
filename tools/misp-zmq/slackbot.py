@@ -43,29 +43,28 @@ def sanitize_value(s):
     s = s.replace('@', '[AT]')
     s = s.replace('\n', ' ')
     # truncate long strings
-    return (s[:max_value_len] + '..') if len(s) > max_value_len else s
+    return f'{s[:max_value_len]}..' if len(s) > max_value_len else s
 
 
 def gen_attrs_text(attrs):
-    attrs_text_lst = []
     type_value_mapping = {}
     for a in attrs:
         try:
             type_value_mapping[a['type']].add(sanitize_value(a['value']))
         except Exception:
-            type_value_mapping[a['type']] = set()
-            type_value_mapping[a['type']].add(sanitize_value(a['value']))
-    for k, v in type_value_mapping.items():
-        attrs_text_lst.append(f"- *{k}*: {','.join(v)}")
-    attrs_text = '\n'.join(attrs_text_lst)
-    return attrs_text
+            type_value_mapping[a['type']] = {sanitize_value(a['value'])}
+    attrs_text_lst = [
+        f"- *{k}*: {','.join(v)}" for k, v in type_value_mapping.items()
+    ]
+
+    return '\n'.join(attrs_text_lst)
 
 
 def publish_event(e):
     cnt_attr = len(e.get('Attribute') or '')
     cnt_obj = len(e.get('Object') or '')
     cnt_tags = len(e.get('Tag') or '')
-    url = misp_url + '/events/view/' + e['id']
+    url = f'{misp_url}/events/view/' + e['id']
     zmq_message_short = f"New MISP event '{e['info']}' with {cnt_attr} attributes, {cnt_obj} objects and {cnt_tags} tags."
 
     image_url = 'https://raw.githubusercontent.com/MISP/MISP/2.4/docs/img/misp.png'
@@ -98,7 +97,7 @@ def publish_event(e):
             "elements": [
             ]
         }
-        tags = set([t['name'] for t in e['Tag']])
+        tags = {t['name'] for t in e['Tag']}
         for a in e['Attribute']:
             if 'Tag' in a:
                 for t in a['Tag']:
@@ -125,8 +124,7 @@ def publish_event(e):
     # List attributes
     if include_attr:
         zmq_message_blocks.append({"type": "divider"})
-        attrs_text = gen_attrs_text(e['Attribute'])
-        if attrs_text:
+        if attrs_text := gen_attrs_text(e['Attribute']):
             zmq_message_blocks.append(
                 {
                     "type": "section",
@@ -140,8 +138,7 @@ def publish_event(e):
     if include_obj:
         zmq_message_blocks.append({"type": "divider"})
         for o in e['Object']:
-            attrs_text = gen_attrs_text(o['Attribute'])
-            if attrs_text:
+            if attrs_text := gen_attrs_text(o['Attribute']):
                 # print(json.dumps(o, indent=2))
                 zmq_message_blocks.append(
                     {
@@ -174,7 +171,7 @@ port = args.port
 host = args.host
 context = zmq.Context()
 socket = context.socket(zmq.SUB)
-socket.connect("tcp://%s:%s" % (host, port))
+socket.connect(f"tcp://{host}:{port}")
 socket.setsockopt(zmq.SUBSCRIBE, b'')
 
 poller = zmq.Poller()

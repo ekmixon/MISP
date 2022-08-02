@@ -164,7 +164,7 @@ class StixParser():
                 'value': reference.value,
                 'to_ids': False
             }
-            attribute.update(stix2misp_mapping.email_references_mapping['from_ref'])
+            attribute |= stix2misp_mapping.email_references_mapping['from_ref']
             attributes.append(attribute)
         for feature in ('to_refs', 'cc_refs'):
             if hasattr(email_message, feature):
@@ -174,7 +174,7 @@ class StixParser():
                         'value': reference.value,
                         'to_ids': False
                     }
-                    attribute.update(stix2misp_mapping.email_references_mapping[feature])
+                    attribute |= stix2misp_mapping.email_references_mapping[feature]
                     attributes.append(attribute)
         return attributes
 
@@ -202,9 +202,15 @@ class StixParser():
             'to_ids': False
         }
         if feature is not None:
-            attribute.update({key: value.format(feature) for key, value in getattr(stix2misp_mapping, mapping)[reference._type].items()})
+            attribute |= {
+                key: value.format(feature)
+                for key, value in getattr(stix2misp_mapping, mapping)[
+                    reference._type
+                ].items()
+            }
+
             return attribute
-        attribute.update({key: value for key, value in getattr(stix2misp_mapping, mapping)[reference._type].items()})
+        attribute |= dict(getattr(stix2misp_mapping, mapping)[reference._type].items())
         return attribute
 
     def parse_pe(self, extension):
@@ -268,9 +274,16 @@ class StixParser():
 
     @staticmethod
     def _parse_user_account_groups(groups):
-        attributes = [{'type': 'text', 'object_relation': 'group', 'to_ids': False,
-                       'disable_correlation': True, 'value': group} for group in groups]
-        return attributes
+        return [
+            {
+                'type': 'text',
+                'object_relation': 'group',
+                'to_ids': False,
+                'disable_correlation': True,
+                'value': group,
+            }
+            for group in groups
+        ]
 
     ################################################################################
     ##                             UTILITY FUNCTIONS.                             ##
@@ -307,7 +320,7 @@ class StixParser():
     def parse_marking(marking):
         marking_type = marking.definition_type
         tag = getattr(marking.definition, marking_type)
-        return "{}:{}".format(marking_type, tag)
+        return f"{marking_type}:{tag}"
 
     def parse_timeline(self, stix_object):
         misp_object = {'timestamp': self.getTimestampfromDate(stix_object.modified)}
@@ -319,7 +332,11 @@ class StixParser():
                 if hasattr(stix_object, last):
                     misp_object['last_seen'] = getattr(stix_object, last)
             elif hasattr(stix_object, last):
-                misp_object.update({'first_seen': first_seen, 'last_seen': getattr(stix_object, last)})
+                misp_object |= {
+                    'first_seen': first_seen,
+                    'last_seen': getattr(stix_object, last),
+                }
+
         except KeyError:
             pass
         return misp_object
@@ -395,16 +412,15 @@ class StixFromMISPParser(StixParser):
     def fill_misp_object(self, misp_object, stix_object, mapping,
                          to_call='_fill_observable_object_attribute'):
         for feature, value in stix_object.items():
-            if feature not in getattr(stix2misp_mapping, mapping):
-                if feature.startswith('x_misp_'):
-                    attribute = self.parse_custom_property(feature)
-                    if isinstance(value, list):
-                        self._fill_misp_object_from_list(misp_object, attribute, value)
-                        continue
-                else:
+            if feature in getattr(stix2misp_mapping, mapping):
+                attribute = deepcopy(getattr(stix2misp_mapping, mapping)[feature])
+            elif feature.startswith('x_misp_'):
+                attribute = self.parse_custom_property(feature)
+                if isinstance(value, list):
+                    self._fill_misp_object_from_list(misp_object, attribute, value)
                     continue
             else:
-                attribute = deepcopy(getattr(stix2misp_mapping, mapping)[feature])
+                continue
             attribute.update(getattr(self, to_call)(feature, value))
             misp_object.add_attribute(**attribute)
 
@@ -412,7 +428,7 @@ class StixFromMISPParser(StixParser):
     def _fill_misp_object_from_list(misp_object, mapping, values):
         for value in values:
             attribute = {'value': value}
-            attribute.update(mapping)
+            attribute |= mapping
             misp_object.add_attribute(**attribute)
 
     def parse_attack_pattern(self, attack_pattern):
@@ -486,7 +502,10 @@ class StixFromMISPParser(StixParser):
         pattern = indicator.pattern.replace('\\\\', '\\')
         if attribute['type'] in ('malware-sample', 'attachment'):
             value, data = self.parse_attribute_pattern_with_data(pattern)
-            attribute.update({feature: value for feature, value in zip(('value', 'data'), (value, io.BytesIO(data.encode())))})
+            attribute.update(
+                dict(zip(('value', 'data'), (value, io.BytesIO(data.encode()))))
+            )
+
         else:
             attribute['value'] = self.parse_attribute_pattern(pattern)
         self.misp_event.add_attribute(**attribute)
@@ -560,10 +579,14 @@ class StixFromMISPParser(StixParser):
 
     @staticmethod
     def _fetch_file_observable(observable_objects):
-        for key, observable in observable_objects.items():
-            if observable['type'] == 'file':
-                return key
-        return '0'
+        return next(
+            (
+                key
+                for key, observable in observable_objects.items()
+                if observable['type'] == 'file'
+            ),
+            '0',
+        )
 
     @staticmethod
     def _fill_observable_attribute(attribute_type, object_relation, value):
@@ -582,7 +605,7 @@ class StixFromMISPParser(StixParser):
                 if isinstance(value, list):
                     for single_value in value:
                         single_attribute = {'value': single_value, 'to_ids': False}
-                        single_attribute.update(attribute)
+                        single_attribute |= attribute
                         attributes.append(single_attribute)
                     continue
             else:
@@ -653,7 +676,7 @@ class StixFromMISPParser(StixParser):
     def parse_file_observable(self, observable):
         file, references = self.filter_main_object(observable, 'File')
         references = {key: {'object': value, 'used': False} for key, value in references.items()}
-        file = {key: value for key, value in file.items()}
+        file = dict(file.items())
         multiple_fields = any(f'x_misp_multiple_{feature}' in file for feature in ('filename', 'path', 'fullpath'))
         attributes = self._handle_multiple_file_fields(file) if multiple_fields else self.fill_observable_attributes(file, 'file_mapping')
         if 'hashes' in file:
@@ -758,8 +781,13 @@ class StixFromMISPParser(StixParser):
             if hasattr(network_traffic, ref):
                 attributes.append(self._parse_observable_reference(references.pop(getattr(network_traffic, ref)), mapping, feature))
             if hasattr(network_traffic, f'{ref}s'):
-                for ref in getattr(network_traffic, f'{ref}s'):
-                    attributes.append(self._parse_observable_reference(references.pop(ref), mapping, feature))
+                attributes.extend(
+                    self._parse_observable_reference(
+                        references.pop(ref), mapping, feature
+                    )
+                    for ref in getattr(network_traffic, f'{ref}s')
+                )
+
         return attributes
 
     @staticmethod
@@ -822,7 +850,7 @@ class StixFromMISPParser(StixParser):
 
     def _parse_socket_extension(self, extension):
         attributes = []
-        extension = {key: value for key, value in extension.items()}
+        extension = dict(extension.items())
         if 'x_misp_text_address_family' in extension:
             extension.pop('address_family')
         for element, value in extension.items():
@@ -952,12 +980,17 @@ class StixFromMISPParser(StixParser):
                 'data': attachment['file:content_ref.payload_bin']
             })
         if 'artifact:payload_bin' in attachment:
-            attributes.append({
-                'type': 'attachment',
-                'object_relation': 'attachment',
-                'value': attachment['artifact:x_misp_text_name'] if 'artifact:x_misp_text_name' in attachment else attachment['file:name'],
-                'data': attachment['artifact:payload_bin']
-            })
+            attributes.append(
+                {
+                    'type': 'attachment',
+                    'object_relation': 'attachment',
+                    'value': attachment.get(
+                        'artifact:x_misp_text_name', attachment['file:name']
+                    ),
+                    'data': attachment['artifact:payload_bin'],
+                }
+            )
+
         return attributes
 
     def parse_ip_port_pattern(self, pattern):
@@ -984,7 +1017,7 @@ class StixFromMISPParser(StixParser):
             attribute = deepcopy(stix2misp_mapping.network_traffic_mapping[pattern_type])
             attribute['value'] = pattern_value.strip("'")
             attributes.append(attribute)
-        attributes.extend(attribute for attribute in references.values())
+        attributes.extend(iter(references.values()))
         return attributes
 
     def parse_network_socket_pattern(self, pattern):
@@ -993,27 +1026,26 @@ class StixFromMISPParser(StixParser):
         for pattern_part in pattern:
             pattern_type, pattern_value = pattern_part.split(' = ')
             pattern_value = pattern_value.strip("'")
-            if pattern_type not in stix2misp_mapping.network_traffic_mapping:
-                if pattern_type in stix2misp_mapping.network_socket_extension_mapping:
-                    attribute = deepcopy(stix2misp_mapping.network_socket_extension_mapping[pattern_type])
-                    if pattern_type.startswith("network-traffic:extensions.'socket-ext'.is_"):
-                        if pattern_value != 'True':
-                            continue
-                        pattern_value = pattern_type.split('_')[1]
-                else:
-                    if pattern_type.startswith('network-traffic:protocols['):
-                        attributes.append({'type': 'text', 'object_relation': 'protocol', 'value': pattern_value})
-                    elif any(pattern_type.startswith(f'network-traffic:{feature}_ref') for feature in ('src', 'dst')):
-                        feature_type, ref = pattern_type.split(':')[1].split('_')
-                        ref, feature = ref.split('.')
-                        ref = f"{feature_type}_{'0' if ref == 'ref' else ref.strip('ref[]')}"
-                        references[ref].update(self._parse_network_connection_reference(feature_type, feature, pattern_value))
-                    continue
-            else:
+            if pattern_type in stix2misp_mapping.network_traffic_mapping:
                 attribute = deepcopy(stix2misp_mapping.network_traffic_mapping[pattern_type])
+            elif pattern_type in stix2misp_mapping.network_socket_extension_mapping:
+                attribute = deepcopy(stix2misp_mapping.network_socket_extension_mapping[pattern_type])
+                if pattern_type.startswith("network-traffic:extensions.'socket-ext'.is_"):
+                    if pattern_value != 'True':
+                        continue
+                    pattern_value = pattern_type.split('_')[1]
+            else:
+                if pattern_type.startswith('network-traffic:protocols['):
+                    attributes.append({'type': 'text', 'object_relation': 'protocol', 'value': pattern_value})
+                elif any(pattern_type.startswith(f'network-traffic:{feature}_ref') for feature in ('src', 'dst')):
+                    feature_type, ref = pattern_type.split(':')[1].split('_')
+                    ref, feature = ref.split('.')
+                    ref = f"{feature_type}_{'0' if ref == 'ref' else ref.strip('ref[]')}"
+                    references[ref].update(self._parse_network_connection_reference(feature_type, feature, pattern_value))
+                continue
             attribute['value'] = pattern_value
             attributes.append(attribute)
-        attributes.extend(attribute for attribute in references.values())
+        attributes.extend(iter(references.values()))
         return attributes
 
     def parse_pe_pattern(self, pattern):
@@ -1097,10 +1129,9 @@ class StixFromMISPParser(StixParser):
         attribute = {'uuid': attribute_uuid,
                      'type': self.get_misp_type(labels),
                      'category': self.get_misp_category(labels)}
-        tags = [{'name': label} for label in labels[3:]]
-        if tags:
+        if tags := [{'name': label} for label in labels[3:]]:
             attribute['Tag'] = tags
-        attribute.update(self.parse_timeline(stix_object))
+        attribute |= self.parse_timeline(stix_object)
         if hasattr(stix_object, 'object_marking_refs'):
             self.update_marking_refs(attribute_uuid, stix_object.object_marking_refs)
         return attribute
@@ -1133,20 +1164,18 @@ class StixFromMISPParser(StixParser):
 
     @staticmethod
     def parse_attribute_pattern(pattern):
-        if ' AND ' in pattern:
-            pattern_parts = pattern.strip('[]').split(' AND ')
-            if len(pattern_parts) == 3:
-                _, value1 = pattern_parts[2].split(' = ')
-                _, value2 = pattern_parts[0].split(' = ')
-                return '{}|{}'.format(value1.strip("'"), value2.strip("'"))
-            else:
-                _, value1 = pattern_parts[0].split(' = ')
-                _, value2 = pattern_parts[1].split(' = ')
-                if value1 in ("'ipv4-addr'", "'ipv6-addr'"):
-                    return value2.strip("'")
-                return '{}|{}'.format(value1.strip("'"), value2.strip("'"))
-        else:
+        if ' AND ' not in pattern:
             return pattern.split(' = ')[1].strip("]'")
+        pattern_parts = pattern.strip('[]').split(' AND ')
+        if len(pattern_parts) == 3:
+            _, value1 = pattern_parts[2].split(' = ')
+            _, value2 = pattern_parts[0].split(' = ')
+        else:
+            _, value1 = pattern_parts[0].split(' = ')
+            _, value2 = pattern_parts[1].split(' = ')
+            if value1 in ("'ipv4-addr'", "'ipv6-addr'"):
+                return value2.strip("'")
+        return '{}|{}'.format(value1.strip("'"), value2.strip("'"))
 
     def parse_attribute_pattern_with_data(self, pattern):
         if 'file:content_ref.payload_bin' not in pattern:
@@ -1302,17 +1331,31 @@ class ExternalStixParser(StixParser):
 
     @staticmethod
     def _fetch_reference_type(references, object_type):
-        for key, reference in references.items():
-            if isinstance(reference, getattr(stix2.v20.observables, object_type)):
-                return key
-        return None
+        return next(
+            (
+                key
+                for key, reference in references.items()
+                if isinstance(
+                    reference, getattr(stix2.v20.observables, object_type)
+                )
+            ),
+            None,
+        )
 
     @staticmethod
     def _fetch_user_account_type_observable(observable_objects):
-        for observable_object in observable_objects.values():
-            if hasattr(observable_object, 'extensions') or any(key not in ('user_id', 'credential', 'type') for key in observable_object):
-                return 'user-account', 'user_account_mapping'
-        return 'credential', 'credential_mapping'
+        return next(
+            (
+                ('user-account', 'user_account_mapping')
+                for observable_object in observable_objects.values()
+                if hasattr(observable_object, 'extensions')
+                or any(
+                    key not in ('user_id', 'credential', 'type')
+                    for key in observable_object
+                )
+            ),
+            ('credential', 'credential_mapping'),
+        )
 
     @staticmethod
     def _get_attributes_from_observable(stix_object, mapping):
@@ -1378,14 +1421,16 @@ class ExternalStixParser(StixParser):
         mapping = 'domain_ip_mapping'
         attributes = [self._parse_observable_reference(domain, mapping)]
         if references:
-            for reference in references.values():
-                attributes.append(self._parse_observable_reference(reference, mapping))
+            attributes.extend(
+                self._parse_observable_reference(reference, mapping)
+                for reference in references.values()
+            )
+
         self.handle_import_case(observable, attributes, 'domain-ip')
 
     def parse_domain_ip_network_traffic_observable(self, observable):
         network_traffic, references = self.filter_main_object(observable.objects, 'NetworkTraffic')
-        extension = self._network_traffic_has_extension(network_traffic)
-        if extension:
+        if extension := self._network_traffic_has_extension(network_traffic):
             attributes, object_name = getattr(self, extension)(network_traffic, references)
             return self.handle_import_case(observable, attributes, object_name)
         if self._required_protocols(network_traffic.protocols):
@@ -1396,8 +1441,7 @@ class ExternalStixParser(StixParser):
 
     def parse_domain_network_traffic_observable(self, observable):
         network_traffic, references = self.filter_main_object(observable.objects, 'NetworkTraffic')
-        extension = self._network_traffic_has_extension(network_traffic)
-        if extension:
+        if extension := self._network_traffic_has_extension(network_traffic):
             attributes, object_name = getattr(self, extension)(network_traffic, references)
             return self.handle_import_case(observable, attributes, object_name)
         attributes = self.parse_network_connection_object(network_traffic, references)
@@ -1452,7 +1496,7 @@ class ExternalStixParser(StixParser):
                 # Here we do not go to the standard route of "handle_import_case"
                 # because we want to make sure a file object is created
                 return self.handle_pe_observable(attributes, file_object.extensions['windows-pebinary-ext'], observable)
-            extension_types = (extension_type for extension_type in file_object.extensions.keys())
+            extension_types = iter(file_object.extensions.keys())
             print(f'File extension type(s) not supported at the moment: {", ".join(extension_types)}', file=sys.stderr)
         self.handle_import_case(observable, attributes, 'file', _force_object=('file-encoding', 'path'))
 
@@ -1463,14 +1507,13 @@ class ExternalStixParser(StixParser):
                 'value': observable_object.value,
                 'to_ids': False
             }
-            attribute.update(stix2misp_mapping.ip_attribute_mapping)
+            attribute |= stix2misp_mapping.ip_attribute_mapping
             attributes.append(attribute)
         self.handle_import_case(observable, attributes, 'ip-port')
 
     def parse_ip_network_traffic_observable(self, observable):
         network_traffic, references = self.filter_main_object(observable.objects, 'NetworkTraffic')
-        extension = self._network_traffic_has_extension(network_traffic)
-        if extension:
+        if extension := self._network_traffic_has_extension(network_traffic):
             attributes, object_name = getattr(self, extension)(network_traffic, references)
             return self.handle_import_case(observable, attributes, object_name)
         attributes = self.parse_ip_port_object(network_traffic, references)
@@ -1506,8 +1549,13 @@ class ExternalStixParser(StixParser):
                 reference = getattr(network_traffic, ref)
                 attributes.append(self._parse_observable_reference(references.pop(reference), mapping, feature))
             if hasattr(network_traffic, f'{ref}s'):
-                for reference in getattr(network_traffic, f'{ref}s'):
-                    attributes.append(self._parse_observable_reference(references.pop(reference), mapping, feature))
+                attributes.extend(
+                    self._parse_observable_reference(
+                        references.pop(reference), mapping, feature
+                    )
+                    for reference in getattr(network_traffic, f'{ref}s')
+                )
+
         return attributes
 
     def parse_mutex_observable(self, observable):
@@ -1527,7 +1575,7 @@ class ExternalStixParser(StixParser):
                 'value': reference.name,
                 'to_ids': False
             }
-            attribute.update(stix2misp_mapping.process_image_mapping)
+            attribute |= stix2misp_mapping.process_image_mapping
             attributes.append(attribute)
         if references:
             print(f'Unable to parse the following observable objects: {references}', file=sys.stderr)
@@ -1564,7 +1612,7 @@ class ExternalStixParser(StixParser):
                 'value': key.split('_')[1] if key.startswith('is_') else value,
                 'to_ids': False
             }
-            attribute.update(stix2misp_mapping.network_socket_extension_mapping[key])
+            attribute |= stix2misp_mapping.network_socket_extension_mapping[key]
             attributes.append(attribute)
         return attributes, 'network-socket'
 
@@ -1604,10 +1652,18 @@ class ExternalStixParser(StixParser):
 
     @staticmethod
     def _fetch_user_account_type_pattern(pattern):
-        for stix_object in pattern:
-            if 'extensions' in stix_object or all(key not in stix_object for key in ('user_id', 'credential', 'type')):
-                return 'user-account', 'user_account_mapping'
-        return 'credential', 'credential_mapping'
+        return next(
+            (
+                ('user-account', 'user_account_mapping')
+                for stix_object in pattern
+                if 'extensions' in stix_object
+                or all(
+                    key not in stix_object
+                    for key in ('user_id', 'credential', 'type')
+                )
+            ),
+            ('credential', 'credential_mapping'),
+        )
 
     def get_attachment(self, attachment, filename):
         attribute = {
@@ -1726,7 +1782,7 @@ class ExternalStixParser(StixParser):
                     'type': 'email-attachment',
                     'object_relation': 'attachment'
                 }
-                attribute.update(attachment)
+                attribute |= attachment
                 attributes.append(attribute)
         self.handle_import_case(indicator, attributes, 'email')
 
@@ -1752,7 +1808,7 @@ class ExternalStixParser(StixParser):
             attribute = deepcopy(stix2misp_mapping.file_mapping[pattern_type])
             attribute['value'] = pattern_value
             attributes.append(attribute)
-        if any(key.endswith('payload_bin') for key in attachment.keys()):
+        if any(key.endswith('payload_bin') for key in attachment):
             attributes.extend(self._handle_file_attachments(attachment))
         if attachment:
             for pattern_type, value in attachment.items():
@@ -1878,7 +1934,7 @@ class ExternalStixParser(StixParser):
                     print(f'Parent process key from pattern not supported at the moment: {key}', file=sys.stderr)
                     continue
                 attribute = {'value': value}
-                attribute.update(stix2misp_mapping.parent_process_reference_mapping[key])
+                attribute |= stix2misp_mapping.parent_process_reference_mapping[key]
                 attributes.append(attribute)
         if child:
             for key, values in child.items():
@@ -1887,7 +1943,7 @@ class ExternalStixParser(StixParser):
                     continue
                 for value in values:
                     attribute = {'value': value}
-                    attribute.update(stix2misp_mapping.child_process_reference_mapping[key])
+                    attribute |= stix2misp_mapping.child_process_reference_mapping[key]
                     attributes.append(attribute)
         self.handle_import_case(indicator, attributes, 'process', _force_object=True)
 
@@ -1979,10 +2035,14 @@ class ExternalStixParser(StixParser):
     def _check_existing_galaxy_name(self, galaxy_name):
         if galaxy_name in self._synonyms_to_tag_names:
             return self._synonyms_to_tag_names[galaxy_name]
-        for name, tag_names in self._synonyms_to_tag_names.items():
-            if galaxy_name in name:
-                return tag_names
-        return None
+        return next(
+            (
+                tag_names
+                for name, tag_names in self._synonyms_to_tag_names.items()
+                if galaxy_name in name
+            ),
+            None,
+        )
 
     def create_misp_object(self, stix_object, name=None):
         misp_object = MISPObject(name if name is not None else stix_object.type,
@@ -2015,7 +2075,7 @@ class ExternalStixParser(StixParser):
             else:
                 attribute = {field: attributes[0][field] for field in stix2misp_mapping.single_attribute_fields if attributes[0].get(field) is not None}
                 attribute['uuid'] = stix_object.id.split('--')[1]
-                attribute.update(self.parse_timeline(stix_object))
+                attribute |= self.parse_timeline(stix_object)
                 if isinstance(stix_object, stix2.v20.Indicator):
                     attribute['to_ids'] = True
                 if hasattr(stix_object, 'object_marking_refs'):
@@ -2048,16 +2108,15 @@ class ExternalStixParser(StixParser):
     @staticmethod
     def _required_protocols(protocols):
         protocols = tuple(protocol.upper() for protocol in protocols)
-        if any(protocol not in ('TCP', 'IP') for protocol in protocols):
-            return True
-        return False
+        return any((protocol not in ('TCP', 'IP') for protocol in protocols))
 
 
 def from_misp(stix_objects):
-    for stix_object in stix_objects:
-        if stix_object['type'] == "report" and 'misp:tool="misp2stix2"' in stix_object.get('labels', []):
-            return True
-    return False
+    return any(
+        stix_object['type'] == "report"
+        and 'misp:tool="misp2stix2"' in stix_object.get('labels', [])
+        for stix_object in stix_objects
+    )
 
 
 def main(args):

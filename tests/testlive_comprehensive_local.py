@@ -119,7 +119,7 @@ class TestComprehensive(unittest.TestCase):
         self.assertEqual(len(index), 1)
         self.assertEqual(index[0].uuid, event.uuid)
 
-        index = self.user_misp_connector.search_index(eventinfo="!" + str(event.info))
+        index = self.user_misp_connector.search_index(eventinfo=f"!{str(event.info)}")
         for index_event in index:
             self.assertNotEqual(event.uuid, index_event.uuid, index)
 
@@ -193,7 +193,7 @@ class TestComprehensive(unittest.TestCase):
         for index_event in index:
             self.assertNotEqual(event.uuid, index_event.uuid, index)
 
-        index = self.user_misp_connector.search_index(tags="!" + str(tags[0].id))
+        index = self.user_misp_connector.search_index(tags=f"!{str(tags[0].id)}")
         for index_event in index:
             self.assertNotEqual(event.uuid, index_event.uuid, index)
 
@@ -316,10 +316,16 @@ class TestComprehensive(unittest.TestCase):
         minimal_org_lower_not = self.user_misp_connector.search_index(minimal=True, org="!test org")
         for event in minimal_org_lower_not:
             self.assertNotEqual(event["orgc_uuid"], self.test_org.uuid)
-        minimal_org_uuid_not = self.user_misp_connector.search_index(minimal=True, org="!" + self.test_org.uuid)
+        minimal_org_uuid_not = self.user_misp_connector.search_index(
+            minimal=True, org=f"!{self.test_org.uuid}"
+        )
+
         for event in minimal_org_uuid_not:
             self.assertNotEqual(event["orgc_uuid"], self.test_org.uuid)
-        minimal_org_id_not = self.user_misp_connector.search_index(minimal=True, org="!" + self.test_org.id)
+        minimal_org_id_not = self.user_misp_connector.search_index(
+            minimal=True, org=f"!{self.test_org.id}"
+        )
+
         for event in minimal_org_id_not:
             self.assertNotEqual(event["orgc_uuid"], self.test_org.uuid)
 

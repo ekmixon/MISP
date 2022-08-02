@@ -26,8 +26,7 @@ def order_dict(dictionary):
 
 
 def make_matrix_header(pos, max_cols):
-    out = []
-    out.append('|Category|')
+    out = ['|Category|']
     cur_pos = 0
     for category in categories:
         cur_pos += 1
@@ -38,10 +37,8 @@ def make_matrix_header(pos, max_cols):
         if cur_pos > pos + max_cols:
             continue
         # we are in the right range
-        out.append(' {} |'.format(category.replace('|', '&#124;')))
-    out.append('\n')
-
-    out.append('| --- |')
+        out.append(f" {category.replace('|', '&#124;')} |")
+    out.extend(('\n', '| --- |'))
     cur_pos = 0
     for category in categories:
         cur_pos += 1
@@ -61,7 +58,7 @@ def make_matrix_content(pos, max_cols):
     out = []
     for t in types:
         cur_pos = 0
-        out.append('|{}|'.format(t.replace('|', '&#124;')))
+        out.append(f"|{t.replace('|', '&#124;')}|")
         for category in categories:
             cur_pos += 1
             # skip if we are not there yet
@@ -89,8 +86,11 @@ def jq_file(fname):
 # verify if the folders exist before continuing
 folders = ['PyMISP', 'misp-book', 'misp-website', 'misp-rfc']
 for folder in folders:
-    if not os.path.isdir('../../' + folder):
-        exit("Make sure you git clone all the folders before running the script: {}".format(folders))
+    if not os.path.isdir(f'../../{folder}'):
+        exit(
+            f"Make sure you git clone all the folders before running the script: {folders}"
+        )
+
 
 
 # Extract categoryDefinitions and typeDefinitions
@@ -107,20 +107,15 @@ php_code_template = '''
 function __($s) {{ return $s; }}
 echo json_encode({});
 '''
-php_code = php_code_template.format(re_match.group(1))
+php_code = php_code_template.format(re_match[1])
 category_definitions_binary = subprocess.run(['php', '-r', php_code], stdout=subprocess.PIPE).stdout
 category_definitions = json.loads(category_definitions_binary.decode('utf-8'))
-categories = list(category_definitions.keys())
-categories.sort()
-
+categories = sorted(category_definitions.keys())
 re_match = re.search(r'function generateTypeDefinitions\(\)\s*{\s*return(.*?\));\s*}', attribute_php_file, flags=re.MULTILINE + re.DOTALL)
-php_code = php_code_template.format(re_match.group(1))
+php_code = php_code_template.format(re_match[1])
 type_definitions_binary = subprocess.run(['php', '-r', php_code], stdout=subprocess.PIPE).stdout
 type_definitions = json.loads(type_definitions_binary.decode('utf-8'))
-types = list(type_definitions.keys())
-types.sort()
-
-
+types = sorted(type_definitions.keys())
 # Generate matrix and list
 ##########################
 matrix_and_list = []
@@ -141,12 +136,18 @@ while col_pos < col_count:
 # build the Categories list
 matrix_and_list.append("\n### Categories\n\n")
 for category in categories:
-    matrix_and_list.append("*   **{}**: {}\n".format(category.replace('|', '&#124;'), category_definitions[category]['desc'].replace('|', '&#124;')))
+    matrix_and_list.append(
+        f"*   **{category.replace('|', '&#124;')}**: {category_definitions[category]['desc'].replace('|', '&#124;')}\n"
+    )
+
 
 # build the Types list
 matrix_and_list.append("\n### Types\n\n")
 for t in types:
-    matrix_and_list.append("*   **{}**: {}\n".format(t.replace('|', '&#124;'), type_definitions[t]['desc'].replace('|', '&#124;')))
+    matrix_and_list.append(
+        f"*   **{t.replace('|', '&#124;')}**: {type_definitions[t]['desc'].replace('|', '&#124;')}\n"
+    )
+
 
 
 # MISP-book
@@ -197,10 +198,15 @@ print("Updating MISP RFC - ../../misp-rfc/misp-core-format/raw.md")
 misp_rfc = []
 rfc_list = []
 for category in categories:
-    rfc_list.append('\n{}\n'.format(category))
-    rfc_list.append(':   ')
-    rfc_list.append(', '.join(category_definitions[category]['types']))
-    rfc_list.append('\n')
+    rfc_list.extend(
+        (
+            f'\n{category}\n',
+            ':   ',
+            ', '.join(category_definitions[category]['types']),
+            '\n',
+        )
+    )
+
 with open('../../misp-rfc/misp-core-format/raw.md', 'r') as f:
     for line in f:
         # start marker

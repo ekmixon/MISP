@@ -15,9 +15,11 @@ from stix2misp import ExternalStixParser, StixFromMISPParser
 
 def externalise_event(event):
     for stix_object in event['objects']:
-        if stix_object['type'] == 'report':
-            if 'misp:tool="misp2stix2"' in stix_object['labels']:
-                stix_object['labels'] = [label for label in stix_object['labels'] if label != 'misp:tool="misp2stix2"']
+        if (
+            stix_object['type'] == 'report'
+            and 'misp:tool="misp2stix2"' in stix_object['labels']
+        ):
+            stix_object['labels'] = [label for label in stix_object['labels'] if label != 'misp:tool="misp2stix2"']
 
 
 def get_external(event):
@@ -60,7 +62,7 @@ if __name__ == '__main__':
             args.returnFormat = return_type
             query_misp(args)
             filenames.append(args.output)
-        to_delete = [filename for filename in filenames]
+        to_delete = list(filenames)
         stix_analyse = validate_file(filenames[1])
         print_results(stix_analyse)
         query_import(filenames[1], args.externalise)

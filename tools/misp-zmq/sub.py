@@ -25,35 +25,32 @@ parser.add_argument("-t", "--sleep", default=0.1, help='sleep time (default: 0.1
 args = parser.parse_args()
 
 if args.only is not None:
-        filters = []
-        for v in args.only:
-                filters.append(v)
-        sys.stderr.write("Following filters applied: {}\n".format(filters))
+        filters = list(args.only)
+        sys.stderr.write(f"Following filters applied: {filters}\n")
         sys.stderr.flush()
 
 port = args.port
 host = args.host
 context = zmq.Context()
 socket = context.socket(zmq.SUB)
-socket.connect("tcp://%s:%s" % (host, port))
+socket.connect(f"tcp://{host}:{port}")
 socket.setsockopt(zmq.SUBSCRIBE, b'')
 
 poller = zmq.Poller()
 poller.register(socket, zmq.POLLIN)
 
 if args.stats:
-    stats = dict()
+        stats = {}
 
 while True:
-    socks = dict(poller.poll(timeout=None))
-    if socket in socks and socks[socket] == zmq.POLLIN:
-            message = socket.recv()
-            topic, s, m = message.decode('utf-8').partition(" ")
-            if args.only:
-                if topic not in filters:
+        socks = dict(poller.poll(timeout=None))
+        if socket in socks and socks[socket] == zmq.POLLIN:
+                message = socket.recv()
+                topic, s, m = message.decode('utf-8').partition(" ")
+                if args.only and topic not in filters:
                         continue
-            print(m)
-            if args.stats:
-                stats[topic] = stats.get(topic, 0) + 1
-                pp.pprint(stats)
-            time.sleep(args.sleep)
+                print(m)
+                if args.stats:
+                    stats[topic] = stats.get(topic, 0) + 1
+                    pp.pprint(stats)
+                time.sleep(args.sleep)

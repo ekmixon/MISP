@@ -32,20 +32,20 @@ class YaraRuleTemplate:
         def __init__(self, stringstype, name, value,
                         modifiers, force_escape=True):
             if not name.startswith('$'):
-                name = '${}'.format(name)
+                name = f'${name}'
             if stringstype == 'byte':
                 value = '{{ {} }}'.format(value)
             elif stringstype == 'text':
                 if force_escape:
                     value = yara_escape_str(value)
-                value = '"{}"'.format(value)
+                value = f'"{value}"'
             elif stringstype == 'regex':
                 if force_escape:
                       # escape all unescaped '/'
                     value = re.sub(r'(?<=[^\\])/', r'\\'+r'/', value)
                 # # quick and dirty way to get rid of illegal line carriages in regexes
                 # value = ''.join([l.strip() for l in value.splitlines()])
-                value = '/{}/'.format(value)
+                value = f'/{value}/'
             self.stringstype = stringstype
             self.name = name
             self.value = value
@@ -55,7 +55,7 @@ class YaraRuleTemplate:
             name = self.name
             value = self.value
             modifiers = ' '.join(self.modifiers)
-            return "{} = {} {}".format(name, value, modifiers)
+            return f"{name} = {value} {modifiers}"
 
     def __init__(self, rulename):
         self.rulename = rulename
@@ -106,24 +106,18 @@ class YaraRuleTemplate:
         if 'strings' in plyara_out:
             for s in plyara_out['strings']:
                 s_modifiers = s['modifiers'] if 'modifiers' in s else []
-                if s['type'] == 'byte' or s['type'] == 'regex':
-                    value = s['value'][1:-1]
-                else:
-                    value = s['value']
+                value = s['value'][1:-1] if s['type'] in ['byte', 'regex'] else s['value']
                 rule._strings(s['type'], s['name'], value, s_modifiers)
-        if 'raw_condition' in plyara_out:
-            _, cond = plyara_out['raw_condition'].split("condition:",1)
-            rule.condition = cond
-            # parsing conditions is too tricky and prone to errors
-            # rule.condition = " ".join(plyara_out['condition_terms'])
-        else:
+        if 'raw_condition' not in plyara_out:
             return rule # stop and return to avoid uncaught plyara exceptions
+        _, cond = plyara_out['raw_condition'].split("condition:",1)
+        rule.condition = cond
         if 'includes' in plyara_out:
             rule.file_dependencies = plyara_out['includes']
         rule.rule_dependencies = plyara.utils.detect_dependencies(plyara_out)
         rule.module_dependencies = plyara.utils.detect_imports(plyara_out)
         if 'permissive_plyara_fixed' in plyara_out \
-            and plyara_out['permissive_plyara_fixed']:
+                and plyara_out['permissive_plyara_fixed']:
             rule.autofixed = True
         if 'permissive_plyara_comment' in plyara_out:
             rule.autofixed_comment = plyara_out['permissive_plyara_comment']
@@ -132,11 +126,11 @@ class YaraRuleTemplate:
     def __str__(self):
         includes = set(self.file_dependencies)
         imports = set(self.module_dependencies)
-        includes_str = '\n'.join(['include "{}"'.format(i) for i in includes])
-        imports_str = '\n'.join(['import "{}"'.format(i) for i in imports])
+        includes_str = '\n'.join([f'include "{i}"' for i in includes])
+        imports_str = '\n'.join([f'import "{i}"' for i in imports])
         scopes = (' '.join(self.rulescopes) + ' ') if self.rulescopes else ''
         tags_str = (' : ' + ' '.join(self.ruletags)) if self.ruletags else ''
-        declaration = '{}rule {}{}'.format(scopes, self.rulename, tags_str)
+        declaration = f'{scopes}rule {self.rulename}{tags_str}'
         meta_section = ''
         strings_section = ''
         condition_section = ''
@@ -144,19 +138,18 @@ class YaraRuleTemplate:
             sorted_meta = sorted(self.meta)
             meta_section += '\tmeta:'
             for (m, v) in sorted_meta:
-                meta_section += '\n\t\t{} = "{}"'.format(m, v)
+                meta_section += f'\n\t\t{m} = "{v}"'
             meta_section += '\n'
         if self.strings:
             strings_section += '\tstrings:'
             for s in self.strings:
-                strings_section += '\n\t\t{}'.format(s)
+                strings_section += f'\n\t\t{s}'
             strings_section += '\n'
         if self.condition:
             condition_section += '\tcondition:'
             for cond_line in self.condition.splitlines():
-                stripped = cond_line.strip()
-                if stripped:
-                    condition_section += '\n\t\t{}'.format(stripped)
+                if stripped := cond_line.strip():
+                    condition_section += f'\n\t\t{stripped}'
         result = '{}\n{}\n{}\n{{\n{}{}{}\n}}'.format(includes_str,
                                                     imports_str,
                                                     declaration,
@@ -164,7 +157,8 @@ class YaraRuleTemplate:
                                                     strings_section,
                                                     condition_section)
         if not self.condition:
-            result = '// this rule will not compile (mandatory "condition" section missing)\n{}'.format(result)
+            result = f'// this rule will not compile (mandatory "condition" section missing)\n{result}'
+
         return result
 
     def add_meta(self, meta_key, meta_value):
@@ -177,7 +171,7 @@ class YaraRuleTemplate:
         # replace forbidden characters with '_'
         name = re.sub(r'[^A-Za-z0-9_]', '_', name)
         if name[0].isdigit():
-            name = '_{}'.format(name)
+            name = f'_{name}'
         self.rulename = name
         return self
 
@@ -185,7 +179,7 @@ class YaraRuleTemplate:
         # replace forbidden characters with '_'
         tag = re.sub(r'[^A-Za-z0-9_]', '_', tag)
         if tag[0].isdigit():
-            tag = '_{}'.format(tag)
+            tag = f'_{tag}'
         self.ruletags.add(tag)
         return self
 
@@ -194,19 +188,21 @@ class YaraRuleTemplate:
         return self
 
     def and_condition(self, condition_expression):
-        if not self.condition:
-            self.condition = '{}'.format(condition_expression)
-        else:
-            self.condition = '{}\n and {}'.format(self.condition,
-                                                condition_expression)
+        self.condition = (
+            f'{self.condition}\n and {condition_expression}'
+            if self.condition
+            else f'{condition_expression}'
+        )
+
         return self
 
     def or_condition(self, condition_expression):
-        if not self.condition:
-            self.condition = '{}'.format(condition_expression)
-        else:
-            self.condition = '{}\n or {}'.format(self.condition,
-                                                condition_expression)
+        self.condition = (
+            f'{self.condition}\n or {condition_expression}'
+            if self.condition
+            else f'{condition_expression}'
+        )
+
         return self
 
     # Adds an entry to the 'strings' section
@@ -215,13 +211,15 @@ class YaraRuleTemplate:
     def _strings(self, str_type, name, value, modifiers):
         if name == '$' or not name:
             name = '$'
-        force_escape = False if self.loaded_from_source else True
+        force_escape = not self.loaded_from_source
         str_entry = self._YaraStringsItem(str_type, name, value, modifiers, force_escape)
         if str_entry.name == '$' or str_entry.name not in (o.name for o in self.strings):
             self.strings.append(str_entry)
         else:
             raise YaraTemplateException(
-                'There is already a string named "{}"'.format(str_entry.name))
+                f'There is already a string named "{str_entry.name}"'
+            )
+
         return self
 
     # adds a 'byte' entry ({}) to strings section (default: nocase ascii wide)
@@ -292,15 +290,13 @@ class YaraRuleTemplate:
 
     @staticmethod
     def _ensure_one_rule(plyara_output):
-        if isinstance(plyara_output, list):
-            if len(plyara_output) != 1:
-                error_msg = 'Single rule expected, \
-                    string contains {} rules'.format(len(plyara_output))
-                raise YaraTemplateException(error_msg)
-            else:
-                return plyara_output[0]
-        else:
+        if not isinstance(plyara_output, list):
             return plyara_output
+        if len(plyara_output) == 1:
+            return plyara_output[0]
+        error_msg = 'Single rule expected, \
+                    string contains {} rules'.format(len(plyara_output))
+        raise YaraTemplateException(error_msg)
 
 
 # =============== Tools ===================

@@ -10,14 +10,14 @@ def mispevent2yara(event, options={}):
         'max_attrs_per_rule': 1000,
         'event_uuid_only': True
     }
-    default_opts.update(options)
+    default_opts |= options
     opts = default_opts
     if not event['Attribute']:
         return []
     generated, asis_valid, asis_broken = mispattrs2yara(event['Attribute'], opts)
     for rule_index, r in enumerate(generated + asis_valid):
         if not r.loaded_from_source and r.attr_count() > 1:
-            rulename = 'MISP_EVENT_{}_PART{}'.format(event['uuid'].replace('-', '_'), rule_index+1)
+            rulename = f"MISP_EVENT_{event['uuid'].replace('-', '_')}_PART{rule_index + 1}"
             r.set_name(rulename)
         r.add_meta('MISP_EVENT_UUID', event['uuid'])
         r.add_meta('MISP_EVENT_INFO', event['info'])
@@ -35,7 +35,7 @@ def mispattrs2yara(attrs_array, options={}):
         'chaining_op': 'or',
         'max_attrs_per_rule': 1
     }
-    opts.update(options)
+    opts |= options
     generated_rules = []
     asis_valid_rules = []
     asis_broken_rules = []
@@ -46,11 +46,14 @@ def mispattrs2yara(attrs_array, options={}):
                 yara_rules = MISPRuleTemplate.from_yara_attr(attr)
                 asis_valid_rules += yara_rules
             except YaraTemplateException as e:
-                comment = '/*            MISP EXPORT COMMENT\n'
-                comment += '    MISP_UUID: {}\n'.format(attr['uuid'])
-                comment += '    {}\n'.format(str(e))
+                comment = (
+                    '/*            MISP EXPORT COMMENT\n'
+                    + f"    MISP_UUID: {attr['uuid']}\n"
+                )
+
+                comment += f'    {str(e)}\n'
                 comment += '*/\n'
-                commented_attr = '{}{}'.format(comment, attr['value'])
+                commented_attr = f"{comment}{attr['value']}"
                 asis_broken_rules.append(commented_attr)
         else:
             current_rule.add_attribute(attr, opts)
@@ -88,12 +91,10 @@ class MISPRuleTemplate(YaraRuleTemplate):
         opts = {
             'chaining_op': 'or',
         }
-        opts.update(options)
+        opts |= options
         self._handle(mispattr, opts)
         self._attributes_count += 1
-        event_only = False
-        if 'event_uuid_only' in opts and opts['event_uuid_only']:
-            event_only = True
+        event_only = bool('event_uuid_only' in opts and opts['event_uuid_only'])
         self._enrich(mispattr, event_uuid_only=event_only)
         self._generate_name(mispattr)
         return self
@@ -104,7 +105,7 @@ class MISPRuleTemplate(YaraRuleTemplate):
         # META:
         #   attribute uuids
         if not event_uuid_only:
-            uuid_meta = '{} ({})'.format(attr['uuid'], attr['type'])
+            uuid_meta = f"{attr['uuid']} ({attr['type']})"
             self.add_meta('MISP_UUID', uuid_meta)
         #   event uuids
         if event:
@@ -116,31 +117,31 @@ class MISPRuleTemplate(YaraRuleTemplate):
             if self.autofixed:
                 self.add_tag('repaired')
                 origin_msg = 'Loaded from a corrupted Yara attribute, '\
-                            + 'automatically repaired.'\
-                            + 'Some comments may have been removed by parser. '\
-                            + 'Rule may be unreliable.'
+                                + 'automatically repaired.'\
+                                + 'Some comments may have been removed by parser. '\
+                                + 'Rule may be unreliable.'
                 self.add_meta('MISP_ORIGIN', origin_msg)
                 self.add_meta('MISP_FIX_NOTES', self.autofixed_comment)
             else:
                 self.add_tag('valid')
                 validity_msg = 'Loaded as-is from a Yara attribute. ' \
-                             + 'Some comments may have been removed by parser.'
+                                 + 'Some comments may have been removed by parser.'
                 self.add_meta('MISP_ORIGIN', validity_msg)
         else:
             self.add_tag('generated')
             self.add_meta('MISP_ORIGIN', 'Automatically generated ' \
-                                                + 'from non-Yara attribute(s)')
+                                                    + 'from non-Yara attribute(s)')
         return self
 
     def _generate_name(self, attr):
         if self.loaded_from_source:
             pass
         elif self._attributes_count == 1:
-            name = 'MISP_ATTRIBUTE_{}'.format(attr['uuid'])
+            name = f"MISP_ATTRIBUTE_{attr['uuid']}"
             self.set_name(name)
         else:
             rand_id = str(uuid.uuid4()).replace('-', '')
-            name = 'MISP_MULTI_ATTRIBUTES_{}'.format(rand_id)
+            name = f'MISP_MULTI_ATTRIBUTES_{rand_id}'
             self.set_name(name)
         return self
 
@@ -149,8 +150,7 @@ class MISPRuleTemplate(YaraRuleTemplate):
 
     def _handle(self, attr, opts):
         attr_type = attr['type']
-        handler = self._get_type_handler(attr_type)
-        if handler:
+        if handler := self._get_type_handler(attr_type):
             handler(attr, opts)
         return self
 
@@ -237,10 +237,7 @@ class MISPRuleTemplate(YaraRuleTemplate):
 
             'user-agent': self._user_agent,
         }
-        if attr_type in handlers:
-            return handlers[attr_type]
-        else:
-            return None
+        return handlers.get(attr_type, None)
 
     def __generic_string(self, value, opts):
         self.strings_text(None, value,
@@ -255,19 +252,19 @@ class MISPRuleTemplate(YaraRuleTemplate):
     def _md5(self, attr, opts):
         filehash = attr['value']
         self.add_module_dependency('hash')
-        self.or_condition('hash.md5(0, filesize) == "{}"'.format(filehash))
+        self.or_condition(f'hash.md5(0, filesize) == "{filehash}"')
         return self
 
     def _sha1(self, attr, opts):
         filehash = attr['value']
         self.add_module_dependency('hash')
-        self.or_condition('hash.sha1(0, filesize) == "{}"'.format(filehash))
+        self.or_condition(f'hash.sha1(0, filesize) == "{filehash}"')
         return self
 
     def _sha256(self, attr, opts):
         filehash = attr['value']
         self.add_module_dependency('hash')
-        self.or_condition('hash.sha256(0, filesize) == "{}"'.format(filehash))
+        self.or_condition(f'hash.sha256(0, filesize) == "{filehash}"')
         return self
 
     # def _filename(self, attr, opts):
@@ -277,19 +274,19 @@ class MISPRuleTemplate(YaraRuleTemplate):
     def _filename_md5(self, attr, opts):
         filename, _, filehash = attr['value'].rpartition('|')
         self.add_module_dependency('hash')
-        self.or_condition('hash.md5(0, filesize) == "{}"'.format(filehash))
+        self.or_condition(f'hash.md5(0, filesize) == "{filehash}"')
         return self
 
     def _filename_sha1(self, attr, opts):
         filename, _, filehash = attr['value'].rpartition('|')
         self.add_module_dependency('hash')
-        self.or_condition('hash.sha1(0, filesize) == "{}"'.format(filehash))
+        self.or_condition(f'hash.sha1(0, filesize) == "{filehash}"')
         return self
 
     def _filename_sha256(self, attr, opts):
         filename, _, filehash = attr['value'].rpartition('|')
         self.add_module_dependency('hash')
-        self.or_condition('hash.sha256(0, filesize) == "{}"'.format(filehash))
+        self.or_condition(f'hash.sha256(0, filesize) == "{filehash}"')
         return self
 
     def _ip_src(self, attr, opts):
@@ -407,13 +404,13 @@ class MISPRuleTemplate(YaraRuleTemplate):
     def _imphash(self, attr, opts):
         filehash = attr['value']
         self.add_module_dependency('pe')
-        self.or_condition('pe.imphash() == "{}"'.format(filehash))
+        self.or_condition(f'pe.imphash() == "{filehash}"')
         return self
 
     def _filename_imphash(self, attr, opts):
         filename, _, filehash = attr['value'].rpartition('|')
         self.add_module_dependency('pe')
-        self.or_condition('pe.imphash() == "{}"'.format(filehash))
+        self.or_condition(f'pe.imphash() == "{filehash}"')
         return self
 
     # def _filename_impfuzzy(self, attr, opts):

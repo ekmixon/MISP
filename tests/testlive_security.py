@@ -20,12 +20,11 @@ try:
     from pymisp import PyMISP, MISPOrganisation, MISPUser, MISPRole, MISPSharingGroup, MISPEvent, MISPLog, MISPSighting
     from pymisp.exceptions import PyMISPError, NoKey, MISPServerError
 except ImportError:
-    if sys.version_info < (3, 6):
-        print('This test suite requires Python 3.6+, breaking.')
-        sys.exit(0)
-    else:
+    if sys.version_info >= (3, 6):
         raise
 
+    print('This test suite requires Python 3.6+, breaking.')
+    sys.exit(0)
 # Load access information for env variables
 url = "http://" + os.environ["HOST"]
 key = os.environ["AUTH"]
@@ -58,14 +57,12 @@ def login(url: str, email: str, password: str) -> requests.Session:
     parsed = fromstring(r.text)
 
     if len(parsed.forms) != 1:
-        raise Exception("Login form not found in: " + r.text)
+        raise Exception(f"Login form not found in: {r.text}")
 
     form = parsed.forms[0]
     form_fields = form.fields
 
-    login_form = {}
-    for name in form_fields:
-        login_form[name] = form_fields[name]
+    login_form = {name: form_fields[name] for name in form_fields}
     login_form["data[User][email]"] = email
     login_form["data[User][password]"] = password
 
@@ -75,7 +72,7 @@ def login(url: str, email: str, password: str) -> requests.Session:
         r = session.get(r.headers['Location'].replace(":8080", ""), allow_redirects=False)  # TODO
         r.raise_for_status()
 
-    r = session.get(url + "/users/view/me.json")
+    r = session.get(f"{url}/users/view/me.json")
     try:
         r.raise_for_status()
     except requests.HTTPError:
@@ -105,7 +102,12 @@ class MISPSetting:
     @staticmethod
     def __run(command: str, data: str) -> str:
         dir_path = os.path.dirname(os.path.realpath(__file__))
-        r = subprocess.run(["php", dir_path + "/modify_config.php", command, data], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        r = subprocess.run(
+            ["php", f"{dir_path}/modify_config.php", command, data],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
         if r.returncode != 0:
             raise Exception([r.returncode, r.stdout, r.stderr])
         return r.stdout.decode("utf-8")
@@ -141,17 +143,21 @@ class TestSecurity(unittest.TestCase):
 
         # Create advanced authkey, so connector will work even after advanced keys are required
         cls.admin_advanced_authkey = cls.__create_advanced_authkey(cls, cls.admin_misp_connector._current_user.id)
-        cls.admin_misp_connector.key = cls.admin_misp_connector.key + "," + cls.admin_advanced_authkey["authkey_raw"]
+        cls.admin_misp_connector.key = (
+            f"{cls.admin_misp_connector.key},"
+            + cls.admin_advanced_authkey["authkey_raw"]
+        )
+
 
         # Creates an org
         organisation = MISPOrganisation()
-        organisation.name = 'Test Org ' + random()  # make name always unique
+        organisation.name = f'Test Org {random()}'
         cls.test_org = cls.admin_misp_connector.add_organisation(organisation)
         check_response(cls.test_org)
 
         # Creates org admin
         org_admin = MISPUser()
-        org_admin.email = 'testorgadmin@user' + random() + '.local'  # make name always unique
+        org_admin.email = f'testorgadmin@user{random()}.local'
         org_admin.org_id = cls.test_org.id
         org_admin.role_id = 2  # Org admin role
         cls.test_org_admin = cls.admin_misp_connector.add_user(org_admin)
@@ -159,13 +165,18 @@ class TestSecurity(unittest.TestCase):
 
         # Creates advanced auth key for org admin
         cls.org_admin_advanced_authkey = cls.__create_advanced_authkey(cls, cls.test_org_admin.id)
-        cls.org_admin_misp_connector = PyMISP(url, cls.test_org_admin.authkey + "," + cls.org_admin_advanced_authkey["authkey_raw"])
+        cls.org_admin_misp_connector = PyMISP(
+            url,
+            f"{cls.test_org_admin.authkey},"
+            + cls.org_admin_advanced_authkey["authkey_raw"],
+        )
+
         cls.org_admin_misp_connector.global_pythonify = True
 
         # Creates an user
         cls.test_usr_password = str(uuid.uuid4())
         user = MISPUser()
-        user.email = 'testusr@user' + random() + '.local'  # make name always unique
+        user.email = f'testusr@user{random()}.local'
         user.org_id = cls.test_org.id
         user.role_id = 3  # User role
         user.password = cls.test_usr_password
@@ -196,7 +207,7 @@ class TestSecurity(unittest.TestCase):
         for path in ("/", "/events/index", "/servers/index", "/users/checkIfLoggedIn"):
             r = session.get(url + path, allow_redirects=False)
             self.assertEqual(302, r.status_code, path)
-            self.assertEqual(url + "/users/login", r.headers['Location'], path)
+            self.assertEqual(f"{url}/users/login", r.headers['Location'], path)
 
         # Should be accessible without login
         for path in ("/users/login",):
@@ -204,13 +215,13 @@ class TestSecurity(unittest.TestCase):
             self.assertEqual(200, r.status_code, path)
 
         with self.__setting("Security.allow_self_registration", True):
-            r = session.get(url + "/users/register", allow_redirects=False)
+            r = session.get(f"{url}/users/register", allow_redirects=False)
             self.assertEqual(200, r.status_code, path)
 
         with self.__setting("Security.allow_self_registration", False):
-            r = session.get(url + "/users/register", allow_redirects=False)
+            r = session.get(f"{url}/users/register", allow_redirects=False)
             self.assertEqual(302, r.status_code)
-            self.assertEqual(url + "/users/login", r.headers['Location'])
+            self.assertEqual(f"{url}/users/login", r.headers['Location'])
 
     def test_empty_authkey(self):
         with self.assertRaises(NoKey):
@@ -225,7 +236,7 @@ class TestSecurity(unittest.TestCase):
             PyMISP(url, "pCZDbBr3wYPlY0DrlQzoD8EWrcClGc0Dqu2yMYyE")
 
     def test_invalid_authkey_start_end_correct(self):
-        authkey = self.test_usr.authkey[0:4] + ("a" * 32) + self.test_usr.authkey[:-4]
+        authkey = self.test_usr.authkey[:4] + "a" * 32 + self.test_usr.authkey[:-4]
         with self.assertRaises(PyMISPError):
             PyMISP(url, authkey)
 
@@ -376,7 +387,7 @@ class TestSecurity(unittest.TestCase):
             auth_key = self.__create_advanced_authkey(self.test_usr.id)
 
             # Try to login
-            authkey = auth_key["authkey_raw"][0:4] + ("a" * 32) + auth_key["authkey_raw"][:-4]
+            authkey = auth_key["authkey_raw"][:4] + "a" * 32 + auth_key["authkey_raw"][:-4]
             with self.assertRaises(PyMISPError):
                 PyMISP(url, authkey)
 
@@ -680,7 +691,7 @@ class TestSecurity(unittest.TestCase):
             check_response(logged_in.get_user())
 
     def test_change_login(self):
-        new_email = 'testusr@user' + random() + '.local'
+        new_email = f'testusr@user{random()}.local'
 
         logged_in = PyMISP(url, self.test_usr.authkey)
         logged_in.global_pythonify = True
@@ -697,7 +708,7 @@ class TestSecurity(unittest.TestCase):
 
     def test_change_login_disabled(self):
         with self.__setting("MISP.disable_user_login_change", True):
-            new_email = 'testusr@user' + random() + '.local'
+            new_email = f'testusr@user{random()}.local'
 
             logged_in = PyMISP(url, self.test_usr.authkey)
             logged_in.global_pythonify = True
@@ -711,7 +722,7 @@ class TestSecurity(unittest.TestCase):
 
     def test_change_login_org_admin(self):
         # Try to change email as org admin
-        new_email = 'testusr@user' + random() + '.local'
+        new_email = f'testusr@user{random()}.local'
         updated_user = self.org_admin_misp_connector.update_user({'email': new_email}, self.test_usr)
         check_response(updated_user)
 
@@ -726,7 +737,7 @@ class TestSecurity(unittest.TestCase):
     def test_change_login_disabled_org_admin(self):
         with self.__setting("MISP.disable_user_login_change", True):
             # Try to change email as org admin
-            new_email = 'testusr@user' + random() + '.local'
+            new_email = f'testusr@user{random()}.local'
             updated_user = self.org_admin_misp_connector.update_user({'email': new_email}, self.test_usr)
             self.assertEqual(self.test_usr.email, updated_user.email, "Email should be still same")
 
@@ -779,7 +790,7 @@ class TestSecurity(unittest.TestCase):
 
     def test_add_user_by_org_admin(self):
         user = MISPUser()
-        user.email = 'testusr@user' + random() + '.local'  # make name always unique
+        user.email = f'testusr@user{random()}.local'
         user.org_id = self.test_org.id
         user.role_id = 3
         created_user = self.org_admin_misp_connector.add_user(user)
@@ -790,7 +801,7 @@ class TestSecurity(unittest.TestCase):
 
     def test_add_user_by_org_admin_to_different_org(self):
         user = MISPUser()
-        user.email = 'testusr@user' + random() + '.local'  # make name always unique
+        user.email = f'testusr@user{random()}.local'
         user.org_id = 1
         user.role_id = 3
         created_user = self.org_admin_misp_connector.add_user(user)
@@ -805,7 +816,7 @@ class TestSecurity(unittest.TestCase):
     def test_add_user_by_org_admin_disabled(self):
         with self.__setting("MISP.disable_user_add", True):
             user = MISPUser()
-            user.email = 'testusr@user' + random() + '.local'  # make name always unique
+            user.email = f'testusr@user{random()}.local'
             user.org_id = self.test_org.id
             user.role_id = 3
             created_user = self.org_admin_misp_connector.add_user(user)
@@ -834,7 +845,7 @@ class TestSecurity(unittest.TestCase):
             session.headers["Group-Tag"] = "user"
 
             session.get(url, allow_redirects=False)
-            r = session.get(url + "/users/view/me.json")
+            r = session.get(f"{url}/users/view/me.json")
             r.raise_for_status()
             json_response = r.json()
             self.assertEqual(self.test_usr.email, json_response["User"]["email"])
@@ -844,12 +855,12 @@ class TestSecurity(unittest.TestCase):
     def test_shibb_new_user(self):
         with self.__setting(self.__default_shibb_config()):
             session = requests.Session()
-            session.headers["Email-Tag"] = "external@user" + random() + ".local"
+            session.headers["Email-Tag"] = f"external@user{random()}.local"
             session.headers["Federation-Tag"] = self.test_org.name
             session.headers["Group-Tag"] = "user"
 
             session.get(url, allow_redirects=False)
-            r = session.get(url + "/users/view/me.json")
+            r = session.get(f"{url}/users/view/me.json")
             r.raise_for_status()
             json_response = r.json()
             self.assertEqual(session.headers["Email-Tag"], json_response["User"]["email"])
@@ -861,12 +872,12 @@ class TestSecurity(unittest.TestCase):
     def test_shibb_new_user_multiple_groups(self):
         with self.__setting(self.__default_shibb_config()):
             session = requests.Session()
-            session.headers["Email-Tag"] = "external@user" + random() + ".local"
+            session.headers["Email-Tag"] = f"external@user{random()}.local"
             session.headers["Federation-Tag"] = self.test_org.name
             session.headers["Group-Tag"] = "user,invalid,admin"
 
             session.get(url, allow_redirects=False)
-            r = session.get(url + "/users/view/me.json")
+            r = session.get(f"{url}/users/view/me.json")
             r.raise_for_status()
             json_response = r.json()
             self.assertEqual(session.headers["Email-Tag"], json_response["User"]["email"])
@@ -878,12 +889,12 @@ class TestSecurity(unittest.TestCase):
     def test_shibb_new_user_non_exists_org(self):
         with self.__setting(self.__default_shibb_config()):
             session = requests.Session()
-            session.headers["Email-Tag"] = "external@user" + random() + ".local"
-            session.headers["Federation-Tag"] = "Non exists org " + random()
+            session.headers["Email-Tag"] = f"external@user{random()}.local"
+            session.headers["Federation-Tag"] = f"Non exists org {random()}"
             session.headers["Group-Tag"] = "user"
 
             session.get(url, allow_redirects=False)
-            r = session.get(url + "/users/view/me.json")
+            r = session.get(f"{url}/users/view/me.json")
             r.raise_for_status()
             json_response = r.json()
             self.assertEqual(session.headers["Email-Tag"], json_response["User"]["email"])
@@ -896,11 +907,14 @@ class TestSecurity(unittest.TestCase):
 
     def test_shibb_new_user_org_uuid(self):
         with self.__setting(self.__default_shibb_config()):
-            r = self.__shibb_login({
-                "Email-Tag": "external@user" + random() + ".local",
-                "Federation-Tag": self.test_org.uuid,
-                "Group-Tag": "user",
-            })
+            r = self.__shibb_login(
+                {
+                    "Email-Tag": f"external@user{random()}.local",
+                    "Federation-Tag": self.test_org.uuid,
+                    "Group-Tag": "user",
+                }
+            )
+
 
             r.raise_for_status()
             json_response = r.json()
@@ -913,11 +927,14 @@ class TestSecurity(unittest.TestCase):
 
     def test_shibb_new_user_non_exists_org_uuid(self):
         with self.__setting(self.__default_shibb_config()):
-            r = self.__shibb_login({
-                "Email-Tag": "external@user" + random() + ".local",
-                "Federation-Tag": str(uuid.uuid4()),
-                "Group-Tag": "user",
-            })
+            r = self.__shibb_login(
+                {
+                    "Email-Tag": f"external@user{random()}.local",
+                    "Federation-Tag": str(uuid.uuid4()),
+                    "Group-Tag": "user",
+                }
+            )
+
             if r.status_code != 403:
                 print(r.text)
                 self.fail()
@@ -925,11 +942,11 @@ class TestSecurity(unittest.TestCase):
     def test_shibb_new_user_no_org_provided(self):
         with self.__setting(self.__default_shibb_config()):
             session = requests.Session()
-            session.headers["Email-Tag"] = "external@user" + random() + ".local"
+            session.headers["Email-Tag"] = f"external@user{random()}.local"
             session.headers["Group-Tag"] = "user"
 
             session.get(url, allow_redirects=False)
-            r = session.get(url + "/users/view/me.json")
+            r = session.get(f"{url}/users/view/me.json")
             r.raise_for_status()
             json_response = r.json()
             self.assertEqual(3, int(json_response["User"]["role_id"]))
@@ -941,12 +958,12 @@ class TestSecurity(unittest.TestCase):
     def test_shibb_invalid_group(self):
         with self.__setting(self.__default_shibb_config()):
             session = requests.Session()
-            session.headers["Email-Tag"] = "external@user" + random() + ".local"
+            session.headers["Email-Tag"] = f"external@user{random()}.local"
             session.headers["Federation-Tag"] = self.test_org.name
             session.headers["Group-Tag"] = "invalid"
 
             session.get(url, allow_redirects=False)
-            r = session.get(url + "/users/view/me.json")
+            r = session.get(f"{url}/users/view/me.json")
             if r.status_code != 403:
                 print(r.text)
                 self.fail()
@@ -954,12 +971,12 @@ class TestSecurity(unittest.TestCase):
     def test_shibb_invalid_email(self):
         with self.__setting(self.__default_shibb_config()):
             session = requests.Session()
-            session.headers["Email-Tag"] = "external.user" + random() + ".local"
+            session.headers["Email-Tag"] = f"external.user{random()}.local"
             session.headers["Federation-Tag"] = self.test_org.name
             session.headers["Group-Tag"] = "user"
 
             session.get(url, allow_redirects=False)
-            r = session.get(url + "/users/view/me.json")
+            r = session.get(f"{url}/users/view/me.json")
             if r.status_code != 403:
                 print(r.text)
                 self.fail()
@@ -974,7 +991,7 @@ class TestSecurity(unittest.TestCase):
             session.headers["Group-Tag"] = "user"
 
             session.get(url, allow_redirects=False)
-            r = session.get(url + "/users/view/me.json")
+            r = session.get(f"{url}/users/view/me.json")
             r.raise_for_status()
             json_response = r.json()
             # Change role back to user
@@ -988,11 +1005,11 @@ class TestSecurity(unittest.TestCase):
         with self.__setting(self.__default_shibb_config()):
             session = requests.Session()
             session.headers["Email-Tag"] = user.email
-            session.headers["Federation-Tag"] = "Non exists org " + random()
+            session.headers["Federation-Tag"] = f"Non exists org {random()}"
             session.headers["Group-Tag"] = "user"
 
             session.get(url, allow_redirects=False)
-            r = session.get(url + "/users/view/me.json")
+            r = session.get(f"{url}/users/view/me.json")
             r.raise_for_status()
             json_response = r.json()
             # Change role back to user
@@ -1143,7 +1160,7 @@ class TestSecurity(unittest.TestCase):
             logged_in = login(url, self.test_usr.email, self.test_usr_password)
             self.assertIsInstance(logged_in, requests.Session)
 
-            response = logged_in.get(url + "/users/view/me.json")
+            response = logged_in.get(f"{url}/users/view/me.json")
             self.assertIn("X-Username", response.headers)
             self.assertEqual(self.test_usr.email, response.headers["X-Username"])
 
@@ -1153,7 +1170,10 @@ class TestSecurity(unittest.TestCase):
 
             response = logged_in._prepare_request('GET', 'users/view/me')
             self.assertIn("X-Username", response.headers)
-            self.assertEqual(self.test_usr.email + "/API/default", response.headers["X-Username"])
+            self.assertEqual(
+                f"{self.test_usr.email}/API/default",
+                response.headers["X-Username"],
+            )
 
     def test_username_in_response_header_advanced_api_access(self):
         with self.__setting({
@@ -1287,10 +1307,7 @@ class TestSecurity(unittest.TestCase):
 
         self.admin_misp_connector.delete_sharing_group(visible_sg)
 
-        sg_found = False
-        for sg in sgs:
-            if sg.uuid == visible_sg.uuid:
-                sg_found = True
+        sg_found = any(sg.uuid == visible_sg.uuid for sg in sgs)
         self.assertTrue(sg_found)
 
     def test_sg_view_user_cannot_see(self):
@@ -1571,14 +1588,14 @@ class TestSecurity(unittest.TestCase):
 
     def __create_org(self) -> MISPOrganisation:
         organisation = MISPOrganisation()
-        organisation.name = 'Test Org ' + random()  # make name always unique
+        organisation.name = f'Test Org {random()}'
         org = self.admin_misp_connector.add_organisation(organisation)
         check_response(org)
         return org
 
     def __create_sharing_group(self) -> MISPSharingGroup:
         sg = MISPSharingGroup()
-        sg.name = 'Testcases SG ' + random()  # make name always unique
+        sg.name = f'Testcases SG {random()}'
         sg.releasability = 'Nic'
         sg = self.admin_misp_connector.add_sharing_group(sg)
         check_response(sg)
@@ -1592,7 +1609,7 @@ class TestSecurity(unittest.TestCase):
         if 500 <= r.status_code < 600:
             raise Exception(r)
 
-        r = session.get(url + "/users/view/me.json")
+        r = session.get(f"{url}/users/view/me.json")
         if 500 <= r.status_code < 600:
             raise Exception(r)
 
@@ -1603,7 +1620,7 @@ class TestSecurity(unittest.TestCase):
             role_id = role_id.value
 
         user = MISPUser()
-        user.email = 'test@' + random() + '.local'  # make name always unique
+        user.email = f'test@{random()}.local'
         if org_id:
             user.org_id = org_id
         if role_id:
@@ -1611,7 +1628,7 @@ class TestSecurity(unittest.TestCase):
         user = self.admin_misp_connector.add_user(user)
         check_response(user)
         if org_id:
-            self.assertEqual(int(org_id), int(user.org_id))
+            self.assertEqual(org_id, int(user.org_id))
         if role_id:
             self.assertEqual(int(role_id), int(user.role_id))
         return user
@@ -1655,10 +1672,7 @@ class TestSecurity(unittest.TestCase):
             self.fail(msg)
 
     def __setting(self, key, value=None) -> MISPSetting:
-        if not isinstance(key, dict):
-            new_setting = {key: value}
-        else:
-            new_setting = key
+        new_setting = key if isinstance(key, dict) else {key: value}
         return MISPSetting(self.admin_misp_connector, new_setting)
 
     def __default_shibb_config(self) -> dict:

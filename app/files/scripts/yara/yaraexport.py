@@ -23,20 +23,18 @@ def rule2json_export(rule, extra_comment=''):
             json_dict['comment'] += 'May be unreliable due to automatic repairs: '
             json_dict['comment'] += rule.autofixed_comment
         json_dict['valid'] = True
-        return json_dict
     else:
         json_dict['comment'] += 'Broken yara attribute. Could not parse or repair.'
         json_dict['valid'] = False
-        return json_dict
+
+    return json_dict
 
 def file_is_empty(path):
     return os.stat(path).st_size==0
 
 def output_json(output_path, output_rules):
     with open(output_path, 'a+', encoding='utf-8') as f:
-        if file_is_empty(output_path):
-            pass
-        else:
+        if not file_is_empty(output_path):
             f.write(',')
         to_write = rules2json_export(output_rules)[1:-1]
         f.write(to_write)
@@ -66,8 +64,7 @@ if __name__ == "__main__":
 
     loaded = None
     with open(in_path, 'r', encoding='utf-8') as in_file:
-        content = in_file.read()
-        if content:
+        if content := in_file.read():
             loaded = json.loads(content)['response']
             # raise Warning("loaded {}".format(content))
             if 'Attribute' in loaded:
@@ -77,13 +74,12 @@ if __name__ == "__main__":
                 asis_valid = []
                 asis_broken = []
                 for event_dict in loaded:
-                    if 'Event' in event_dict:
-                        curr_generated, curr_asis_valid, curr_asis_broken = mispevent2yara(event_dict['Event'])
-                        generated += curr_generated
-                        asis_valid += curr_asis_valid
-                        asis_broken += curr_asis_broken
-                    else:
+                    if 'Event' not in event_dict:
                         raise Exception('Json doesn\'t seem to be an list of attributes or events')
+                    curr_generated, curr_asis_valid, curr_asis_broken = mispevent2yara(event_dict['Event'])
+                    generated += curr_generated
+                    asis_valid += curr_asis_valid
+                    asis_broken += curr_asis_broken
             else:
                 raise Exception('Json doesn\'t seem to be an list of attributes or events')
             if raw_mode:

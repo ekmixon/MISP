@@ -30,10 +30,9 @@ class HTTPSClientAuthHandler(urllib2.HTTPSHandler):
     def getConnection(self, host, timeout=300):
         return httplib.HTTPSConnection(host, key_file=self.key, cert_file=self.cert)
 
-URL="%s/%s" % (MISP_HOST, EXPORT_DATA)
+URL = f"{MISP_HOST}/{EXPORT_DATA}"
 opener = urllib2.build_opener(HTTPSClientAuthHandler(CERT_FILE, CERT_FILE))
 opener.addheaders = [('Authorization', API_KEY)]
 data = opener.open(URL).read()
-f = open(OUTPUT_FILE,'w')
-f.write(data)
-f.close()
+with open(OUTPUT_FILE,'w') as f:
+    f.write(data)

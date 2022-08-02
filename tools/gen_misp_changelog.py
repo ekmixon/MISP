@@ -9,16 +9,9 @@ outputFile = "/tmp/Changelog.tmp"
 
 previousLine = ""
 
-output_file = open(outputFile, "w")
-
-for line in open(inputFile, "r"):
-    if line == previousLine:
+with open(outputFile, "w") as output_file:
+    for line in open(inputFile, "r"):
+        if line != previousLine:
+            output_file.write(line)
         previousLine = line
-        continue
-    else:
-        output_file.write(line)
-        previousLine = line
-
-output_file.close()
-
 shutil.move(outputFile, inputFile)

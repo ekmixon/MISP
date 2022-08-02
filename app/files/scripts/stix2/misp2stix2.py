@@ -52,8 +52,7 @@ def _process_misp_files(version: str, input_names: Union[list, None], debug: boo
             parser.parse_json_content(name)
             with open(f'{name}.out', 'wt', encoding='utf-8') as f:
                 f.write(f'{json.dumps(parser.stix_objects, cls=STIXJSONEncoder)}')
-        errors = parser.errors
-        if errors:
+        if errors := parser.errors:
             _handle_errors(errors)
         print(json.dumps({'success': 1}))
     except Exception as e:

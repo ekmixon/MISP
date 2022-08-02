@@ -325,11 +325,18 @@ network_traffic_mapping = {'dst_port':dst_port_attribute_mapping,
                            'network-traffic:dst_port': dst_port_attribute_mapping,
                            'network-traffic:src_port': src_port_attribute_mapping}
 
-ip_port_mapping = {'value': domain_attribute_mapping,
-                   'domain-name:value': domain_attribute_mapping,
-                   'network-traffic:dst_ref.value': {'type': 'ip-dst', 'object_relation': 'ip-dst'},
-                   'network-traffic:src_ref.value': {'type': 'ip-src', 'object_relation': 'ip-src'}}
-ip_port_mapping.update(network_traffic_mapping)
+ip_port_mapping = {
+    'value': domain_attribute_mapping,
+    'domain-name:value': domain_attribute_mapping,
+    'network-traffic:dst_ref.value': {
+        'type': 'ip-dst',
+        'object_relation': 'ip-dst',
+    },
+    'network-traffic:src_ref.value': {
+        'type': 'ip-src',
+        'object_relation': 'ip-src',
+    },
+} | network_traffic_mapping
 
 ip_port_references_mapping = {'domain-name': domain_attribute_mapping,
                               'ipv4-addr': network_traffic_ip,
@@ -357,8 +364,16 @@ for hash_type in hash_types:
     misp_hash_type = hash_type.replace('-', '').lower()
     attribute = {'type': misp_hash_type, 'object_relation': misp_hash_type}
     file_mapping[hash_type] = attribute
-    file_mapping.update({f"file:hashes.'{feature}'": attribute for feature in (hash_type, misp_hash_type)})
-    file_mapping.update({f"file:hashes.{feature}": attribute for feature in (hash_type, misp_hash_type)})
+    file_mapping |= {
+        f"file:hashes.'{feature}'": attribute
+        for feature in (hash_type, misp_hash_type)
+    }
+
+    file_mapping |= {
+        f"file:hashes.{feature}": attribute
+        for feature in (hash_type, misp_hash_type)
+    }
+
     pe_section_mapping[hash_type] = attribute
     pe_section_mapping[misp_hash_type] = attribute
 

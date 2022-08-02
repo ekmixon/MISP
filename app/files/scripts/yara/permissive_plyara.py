@@ -30,10 +30,12 @@ class PermissivePlyara():
                 return plyara.Plyara().parse_string(input_string)
         except ParseError as e:
             raise
-        # some errors are not properly caught by plyara
-        # convert everything to ParseError to avoid uncatchable crashes
         except Exception as e:
-            raise ParseError('Uncaught plyara exception ({}): {}'.format(type(e).__name__, str(e)), None, None)
+            raise ParseError(
+                f'Uncaught plyara exception ({type(e).__name__}): {str(e)}',
+                None,
+                None,
+            )
 
     def _permissive_parse_string(self, input_string, fix_notes=None, original_error=None):
         if not fix_notes:
@@ -63,8 +65,8 @@ class PermissivePlyara():
                 fixed = _fix_illegal_chars(input_string)
                 fix_notes.add('Illegal characters')
             elif str_error.startswith('Unknown text { for token of type LBRACE') \
-                and input_string.lstrip().startswith \
-                and input_string.rstrip().endswith('}'):
+                    and input_string.lstrip().startswith \
+                    and input_string.rstrip().endswith('}'):
                 fixed = _fix_noname(input_string)
                 fix_notes.add('Missing rule name')
             elif re.match(r'Unknown text\s?_\s?for token of type ID', str_error):
@@ -91,29 +93,24 @@ def _fix_quotes(yara_src):
     return repaired
 
 def _fix_capital(yara_src):
-    repaired = yara_src.replace('Rule', 'rule')
-    return repaired
+    return yara_src.replace('Rule', 'rule')
 
 def _fix_illegal_chars(yara_src):
-    repaired = ''.join(filter(lambda x: x in string.printable, yara_src))
-    return repaired
+    return ''.join(filter(lambda x: x in string.printable, yara_src))
 
 def _fix_noname(yara_src):
-    repaired = 'rule UnnamedRule ' + yara_src
-    return repaired
+    return f'rule UnnamedRule {yara_src}'
 
 def _fix_spaced_underscores(yara_src):
-    repaired = yara_src.replace(' _ ', '_')
-    return repaired
+    return yara_src.replace(' _ ', '_')
 
 def _fix_magic(yara_src):
-    repaired = ''
-    for line in yara_src.splitlines():
-        if '//' not in line:
-            repaired += line
-        else:
-            repaired += '\n{}\n'.format(line)
-    return repaired if repaired else yara_src
+    repaired = ''.join(
+        line if '//' not in line else f'\n{line}\n'
+        for line in yara_src.splitlines()
+    )
+
+    return repaired or yara_src
 
 
 # Keeping this code for later as it contains more advanced fixes

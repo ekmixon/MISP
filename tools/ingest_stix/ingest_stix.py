@@ -36,5 +36,9 @@ if __name__ == '__main__':
     with open('setup.json', 'rt', encoding='utf-8') as f:
         default_setup = json.loads(f.read())
     features = ('misp_url', 'misp_key', 'misp_verifycert')
-    setup = [getattr(args, feature) if getattr(args, feature) else default_setup[feature] for feature in features]
+    setup = [
+        getattr(args, feature) or default_setup[feature]
+        for feature in features
+    ]
+
     print(ingest_to_misp(args.path, args.version, *setup))

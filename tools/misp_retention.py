@@ -38,15 +38,21 @@ class misphelper(object):
         changed = False
 
         for attr in mevent.attributes:
-            if (attr["type"] == "ip-dst" or attr["type"] == "ip-src") and attr["to_ids"]:
-                print("Removing IDS flag in event '{}' on attr '{}'".format(mevent.id, attr["value"]))
+            if attr["type"] in ["ip-dst", "ip-src"] and attr["to_ids"]:
+                print(
+                    f"""Removing IDS flag in event '{mevent.id}' on attr '{attr["value"]}'"""
+                )
+
                 changed = True
                 attr["to_ids"] = False
                 self.misp.update_attribute(attr)
         for obj in mevent.objects:
             for attr in obj.Attribute:
-                if (attr["type"] == "ip-dst" or attr["type"] == "ip-src") and attr["to_ids"]:
-                    print("Removing IDS flag in event '{}' on attr '{}'".format(mevent.id, attr["value"]))
+                if attr["type"] in ["ip-dst", "ip-src"] and attr["to_ids"]:
+                    print(
+                        f"""Removing IDS flag in event '{mevent.id}' on attr '{attr["value"]}'"""
+                    )
+
                     changed = True
                     attr["to_ids"] = False
                     self.misp.update_attribute(attr)
@@ -77,20 +83,19 @@ class misphelper(object):
         res = self.misp.get_taxonomy(self.taxonomyId)
 
         for tag in res['entries']:
-            m = re.match(r"^retention:([0-9]+)([d,w,m,y])$", tag["tag"])
-            if m:
+            if m := re.match(r"^retention:([0-9]+)([d,w,m,y])$", tag["tag"]):
                 tagSearch = self.misp.build_complex_query(and_parameters = [tag["tag"]], not_parameters = [self.expiredTag])
                 events = self.misp.search(published=True, tags=tagSearch)
-                self.findEventsAfterRetention(events, (m.group(1), m.group(2)))
+                self.findEventsAfterRetention(events, (m[1], m[2]))
 
+            elif tag["tag"] == self.expiredTag:
+                if tag["existing_tag"]["Tag"]["hide_tag"] is False:
+                    tag["existing_tag"]["Tag"]["hide_tag"] = True
+                    self.misp.update_tag(tag["existing_tag"]["Tag"])
             else:
-                # set expiredTag to hidden if it was accidentally enabled by "enable all"
-                if tag["tag"] == self.expiredTag:
-                    if tag["existing_tag"]["Tag"]["hide_tag"] is False:
-                        tag["existing_tag"]["Tag"]["hide_tag"] = True
-                        self.misp.update_tag(tag["existing_tag"]["Tag"])
-                else:
-                    raise Exception("Could not parse retention time/unit from tag: '{}'.".format(tag["tag"]))
+                raise Exception(
+                    f"""Could not parse retention time/unit from tag: '{tag["tag"]}'."""
+                )
 
 
 if __name__ == "__main__":

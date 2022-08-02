@@ -36,8 +36,7 @@ def saveFile(data, filename):
 def getValueFromRelatedObservables(observables):
     values = []
     for observable in observables:
-        temp = getValuesFromObservable(observable["observable"])
-        if temp:
+        if temp := getValuesFromObservable(observable["observable"]):
             values.extend(temp)
     return values
 

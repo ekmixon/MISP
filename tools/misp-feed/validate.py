@@ -4,8 +4,11 @@ import json
 import jsonschema
 
 script_path = os.path.dirname(os.path.realpath(__file__))
-default_feed_path = script_path + '/../../app/files/feed-metadata/defaults.json'
-schema_path = script_path + '/../../app/files/feed-metadata/schema.json'
+default_feed_path = (
+    f'{script_path}/../../app/files/feed-metadata/defaults.json'
+)
+
+schema_path = f'{script_path}/../../app/files/feed-metadata/schema.json'
 
 with open(default_feed_path) as feed_file:
     feedlist = json.load(feed_file)
@@ -25,7 +28,10 @@ for feed in feedlist:
             json.loads(feed['Feed'][json_field])
         except ValueError:
             valid = False
-            print("Invalid JSON for field `{}` for feed `{}`".format(json_field, feed['Feed']['name']))
+            print(
+                f"Invalid JSON for field `{json_field}` for feed `{feed['Feed']['name']}`"
+            )
+
 
 if not valid:
     sys.exit(1)

@@ -42,7 +42,7 @@ def event_monitor(monitor, logger):
         if evt["event"] == zmq.EVENT_MONITOR_STOPPED:
             break
         evt.update({"description": EVENT_MAP[evt["event"]]})
-        logger.debug("ZMQ event: {}".format(evt))
+        logger.debug(f"ZMQ event: {evt}")
     monitor.close()
 
 
@@ -64,10 +64,9 @@ class MispZmq:
         self.tmp_location = Path(__file__).parent.parent / "tmp"
         self.pidfile = self.tmp_location / "mispzmq.pid"
         if self.pidfile.exists():
-            with open(self.pidfile.as_posix()) as f:
-                pid = f.read()
+            pid = Path(self.pidfile.as_posix()).read_text()
             if check_pid(pid):
-                raise Exception("mispzmq already running on PID {}".format(pid))
+                raise Exception(f"mispzmq already running on PID {pid}")
             else:
                 # Cleanup
                 self.pidfile.unlink()
@@ -84,8 +83,9 @@ class MispZmq:
                                    password=self.settings["redis_password"], port=self.settings["redis_port"],
                                    decode_responses=True)
         self.timestamp_settings = time.time()
-        self._logger.debug("Connected to Redis {}:{}/{}".format(self.settings["redis_host"], self.settings["redis_port"],
-                                                           self.settings["redis_database"]))
+        self._logger.debug(
+            f'Connected to Redis {self.settings["redis_host"]}:{self.settings["redis_port"]}/{self.settings["redis_database"]}'
+        )
 
     def _setup_zmq(self):
         context = zmq.Context()
@@ -105,8 +105,11 @@ class MispZmq:
         self.socket = context.socket(zmq.PUB)
         if self.settings["username"]:
             self.socket.plain_server = True  # must come before bind
-        self.socket.bind("tcp://{}:{}".format(self.settings["host"], self.settings["port"]))
-        self._logger.debug("ZMQ listening on tcp://{}:{}".format(self.settings["host"], self.settings["port"]))
+        self.socket.bind(f'tcp://{self.settings["host"]}:{self.settings["port"]}')
+        self._logger.debug(
+            f'ZMQ listening on tcp://{self.settings["host"]}:{self.settings["port"]}'
+        )
+
 
         if self._logger.isEnabledFor(logging.DEBUG):
             monitor = self.socket.get_monitor_socket()
@@ -130,21 +133,28 @@ class MispZmq:
 
         elif command == "status":
             self._logger.info("Status command received, responding with latest stats.")
-            self.r.delete("{}:status".format(self.namespace))
-            self.r.lpush("{}:status".format(self.namespace),
-                         json.dumps({"timestamp": time.time(),
-                                     "timestampSettings": self.timestamp_settings,
-                                     "publishCount": self.publish_count,
-                                     "messageCount": self.message_count}))
+            self.r.delete(f"{self.namespace}:status")
+            self.r.lpush(
+                f"{self.namespace}:status",
+                json.dumps(
+                    {
+                        "timestamp": time.time(),
+                        "timestampSettings": self.timestamp_settings,
+                        "publishCount": self.publish_count,
+                        "messageCount": self.message_count,
+                    }
+                ),
+            )
+
         else:
-            self._logger.warning("Received invalid command '{}'.".format(command))
+            self._logger.warning(f"Received invalid command '{command}'.")
 
     def _create_pid_file(self):
         with open(self.pidfile.as_posix(), "w") as f:
             f.write(str(os.getpid()))
 
     def _pub_message(self, topic, data):
-        self.socket.send_string("{} {}".format(topic, data))
+        self.socket.send_string(f"{topic} {data}")
 
     def clean(self):
         if self.monitor_thread:
@@ -174,10 +184,8 @@ class MispZmq:
                   "misp_json_tag", "misp_json_warninglist"
                   ]
 
-        lists = ["{}:command".format(self.namespace)]
-        for topic in topics:
-            lists.append("{}:data:{}".format(self.namespace, topic))
-
+        lists = [f"{self.namespace}:command"]
+        lists.extend(f"{self.namespace}:data:{topic}" for topic in topics)
         while True:
             data = self.r.blpop(lists, timeout=10)
 
@@ -194,18 +202,18 @@ class MispZmq:
                 self._logger.debug("No message received for 10 seconds, sending ZMQ status message.")
             else:
                 key, value = data
-                key = key.replace("{}:".format(self.namespace), "")
+                key = key.replace(f"{self.namespace}:", "")
                 if key == "command":
                     self._handle_command(value)
                 elif key.startswith("data:"):
                     topic = key.split(":")[1]
-                    self._logger.debug("Received data for topic '{}', sending to ZMQ.".format(topic))
+                    self._logger.debug(f"Received data for topic '{topic}', sending to ZMQ.")
                     self._pub_message(topic, value)
                     self.message_count += 1
                     if topic == "misp_json":
                         self.publish_count += 1
                 else:
-                    self._logger.warning("Received invalid message '{}'.".format(key))
+                    self._logger.warning(f"Received invalid message '{key}'.")
 
 
 if __name__ == "__main__":

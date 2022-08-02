@@ -34,17 +34,16 @@ def get_worker_status():
         res = requests.get("{misp_url}/servers/getWorkers".format(misp_url=misp_url), headers=headers, verify=misp_verifycert).json()
         for el in res:
             worker = res.get(el)
-            if type(worker) is dict:
-                if 'ok' in worker:
-                    if worker.get('ok') is True:
-                        workers_ok += len(worker.get('workers'))
-                    else:
-                        workers_dead += 1
+            if type(worker) is dict and 'ok' in worker:
+                if worker.get('ok') is True:
+                    workers_ok += len(worker.get('workers'))
+                else:
+                    workers_dead += 1
     except AttributeError:
         workers_ok = misp_fail_data
         workers_dead = misp_fail_data
 
-    print("{}\n{}".format(workers_ok, workers_dead))
+    print(f"{workers_ok}\n{workers_dead}")
 
 
 def get_job_count():
@@ -53,13 +52,12 @@ def get_job_count():
     try:
         for el in res:
             worker = res.get(el)
-            if type(worker) is dict:
-                if 'jobCount' in worker:
-                    jobs = int(worker.get('jobCount'))
+            if type(worker) is dict and 'jobCount' in worker:
+                jobs = int(worker.get('jobCount'))
     except AttributeError:
         jobs = misp_fail_data
 
-    print("{}".format(jobs))
+    print(f"{jobs}")
 
 
 def update_cache():
@@ -80,11 +78,12 @@ def update_cache():
         users = misp_fail_data
         orgs = misp_fail_data
 
-    cache = {}
-    cache['events'] = events
-    cache['attributes'] = attributes
-    cache['users'] = users
-    cache['orgs'] = orgs
+    cache = {
+        'events': events,
+        'attributes': attributes,
+        'users': users,
+        'orgs': orgs,
+    }
 
     with open(misp_cachefile, 'w') as outfile:
         json.dump(cache, outfile)
@@ -94,14 +93,14 @@ def get_data_stats_cached():
     with open(misp_cachefile) as json_file:
         cache = json.load(json_file)
 
-        print("{}\n{}".format(cache['events'], cache['attributes']))
+        print(f"{cache['events']}\n{cache['attributes']}")
 
 
 def get_data_users_cached():
     with open(misp_cachefile) as json_file:
         cache = json.load(json_file)
 
-        print("{}\n{}".format(cache['users'], cache['orgs']))
+        print(f"{cache['users']}\n{cache['orgs']}")
 
 
 if sys.argv[1] == "jobs":

@@ -18,5 +18,6 @@ with open(default_feed) as feed_file:
 
 
 for feed in feedlist:
-    output = "- [{}]({}) - {} - feed format: {}".format(feed['Feed']['name'], feed['Feed']['url'],feed['Feed']['provider'],feed['Feed']['source_format'])
+    output = f"- [{feed['Feed']['name']}]({feed['Feed']['url']}) - {feed['Feed']['provider']} - feed format: {feed['Feed']['source_format']}"
+
     print (output)
